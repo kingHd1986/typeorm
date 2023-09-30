@@ -9,7 +9,7 @@ import {
   Type,
 } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
-import { defer, lastValueFrom } from 'rxjs';
+// import { defer, lastValueFrom } from 'rxjs';
 import {
   Connection,
   createConnection,
@@ -21,7 +21,7 @@ import {
   getDataSourceName,
   getDataSourceToken,
   getEntityManagerToken,
-  handleRetry,
+  // handleRetry,
 } from './common/typeorm.utils';
 import { EntitiesMetadataStorage } from './entities-metadata.storage';
 import {
@@ -199,6 +199,24 @@ export class TypeOrmCoreModule implements OnApplicationShutdown {
     };
   }
 
+  private static async tryToInitialize(
+    dataSource: DataSource,
+    timeout: number = 3000,
+  ) {
+    const interval = setInterval(() => {
+      dataSource
+        .initialize()
+        .then(() => {
+          Logger.verbose('Connected to Database', 'TypeOrmModule');
+          clearInterval(interval);
+        })
+        .catch((error) => {
+          Logger.error('Cannot Initialize Database', 'TypeOrmModule');
+          Logger.error(error, 'TypeOrmModule');
+        });
+    }, timeout);
+  }
+
   private static async createDataSourceFactory(
     options: TypeOrmModuleOptions,
     dataSourceFactory?: TypeOrmDataSourceFactory,
@@ -211,45 +229,66 @@ export class TypeOrmCoreModule implements OnApplicationShutdown {
           ? createConnection(options)
           : new DataSource(options);
       });
-    return await lastValueFrom(
-      defer(async () => {
-        if (!options.autoLoadEntities) {
-          const dataSource = await createTypeormDataSource(
-            options as DataSourceOptions,
-          );
-          // TODO: remove "dataSource.initialize" condition (left for backward compatibility)
-          return (dataSource as any).initialize && !dataSource.isInitialized
-            ? dataSource.initialize()
-            : dataSource;
-        }
 
-        let entities = options.entities;
-        if (Array.isArray(entities)) {
-          entities = entities.concat(
-            EntitiesMetadataStorage.getEntitiesByDataSource(dataSourceToken),
-          );
-        } else {
-          entities =
-            EntitiesMetadataStorage.getEntitiesByDataSource(dataSourceToken);
-        }
-        const dataSource = await createTypeormDataSource({
-          ...options,
-          entities,
-        } as DataSourceOptions);
+    if (!options.autoLoadEntities) {
+      try {
+        const dataSource = await createTypeormDataSource(
+          options as DataSourceOptions,
+        );
 
         // TODO: remove "dataSource.initialize" condition (left for backward compatibility)
         return (dataSource as any).initialize && !dataSource.isInitialized
-          ? dataSource.initialize()
+          ? await dataSource.initialize()
           : dataSource;
-      }).pipe(
-        handleRetry(
-          options.retryAttempts,
-          options.retryDelay,
-          dataSourceToken,
-          options.verboseRetryLog,
-          options.toRetry,
-        ),
-      ),
-    );
+      } catch (error) {
+        const dataSource = await createTypeormDataSource(
+          options as DataSourceOptions,
+        );
+        this.tryToInitialize(dataSource, options.retryDelay);
+        return dataSource;
+      }
+    }
+
+    let entities = options.entities;
+    try {
+      if (Array.isArray(entities)) {
+        entities = entities.concat(
+          EntitiesMetadataStorage.getEntitiesByDataSource(dataSourceToken),
+        );
+      } else {
+        entities =
+          EntitiesMetadataStorage.getEntitiesByDataSource(dataSourceToken);
+      }
+      const dataSource = await createTypeormDataSource({
+        ...options,
+        entities,
+      } as DataSourceOptions);
+
+      // TODO: remove "dataSource.initialize" condition (left for backward compatibility)
+      return (dataSource as any).initialize && !dataSource.isInitialized
+        ? await dataSource.initialize()
+        : dataSource;
+    } catch (error) {
+      const dataSource = await createTypeormDataSource({
+        ...options,
+        entities,
+      } as DataSourceOptions);
+      this.tryToInitialize(dataSource, options.retryDelay);
+      return dataSource;
+    }
+
+    // return await lastValueFrom(
+    //   defer(async () => {
+
+    //   }).pipe(
+    //     handleRetry(
+    //       options.retryAttempts,
+    //       options.retryDelay,
+    //       dataSourceToken,
+    //       options.verboseRetryLog,
+    //       options.toRetry,
+    //     ),
+    //   ),
+    // );
   }
 }
