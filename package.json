@@ -1,7 +1,7 @@
 {
-  "name": "@nestjs/typeorm",
+  "name": "@novin/typeorm",
   "version": "10.0.0",
-  "description": "Nest - modern, fast, powerful node.js web framework (@typeorm)",
+  "description": "Nest - modern, fast, powerful node.js web framework (@typeorm) - Ignore check connection on startup",
   "author": "Kamil Mysliwiec",
   "license": "MIT",
   "url": "https://github.com/nestjs/typeorm#readme",
@@ -64,6 +64,6 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/nestjs/typeorm"
+    "url": "https://github.com/kingHd1986/typeorm"
   }
 }
